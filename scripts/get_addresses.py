@@ -24,7 +24,7 @@ async def fetch_pcode(pcode, session, semaphore):
             await asyncio.sleep(1.5) 
             
             # CORRECT ONEMAP URL
-            url = f"https://www.onemap.gov.sg{pcode}&returnGeom=Y&getAddrDetails=Y&pageNum={page}"
+            url = f"https://www.onemap.gov.sg/api/common/elastic/search?searchVal={pcode}&returnGeom=Y&getAddrDetails=Y&pageNum={page}"
             
             success = False
             for attempt in range(4):
