@@ -28,7 +28,7 @@ api = HfApi()
 api.upload_file(
     path_or_fileobj="bus_stops.parquet",
     path_in_repo="bus_stops.parquet",
-    repo_id="gisfun/spatial-data",  # <-- UPDATE THIS
+    repo_id="gisfun/spatial-datasets",
     repo_type="dataset",
     token=os.environ["HF_TOKEN"]
 )
