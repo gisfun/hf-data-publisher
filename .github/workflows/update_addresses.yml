@@ -1,30 +1,109 @@
 name: update addresses
 on:
-  workflow_dispatch: # Keep this so you can test it manually first!
+  workflow_dispatch: # Allows manual trigger via the "Run workflow" button
   schedule:
     - cron: '0 0 1 * *' # Runs at 00:00 on the 1st day of every month
 
 jobs:
   scrape-addresses:
-    strategy:
-      matrix:
-        # Define 5 chunks of 200k each
-        chunk: [0, 200000, 400000, 600000, 800000]
     runs-on: ubuntu-latest
+    timeout-minutes: 300 # 5-hour safety limit per job
+    strategy:
+      fail-fast: false # Ensure one failing chunk doesn't kill the others
+      matrix:
+        # 5 parallel runners handling 200k postal codes each
+        chunk: [0, 200000, 400000, 600000, 800000]
+
     steps:
       - uses: actions/checkout@v4
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
+
       - name: Install Dependencies
-        run: pip install pandas geopandas aiohttp huggingface_hub pyogrio
+        run: |
+          pip install pandas geopandas aiohttp huggingface_hub pyogrio pyarrow shapely
+
       - name: Run Scraper for Chunk
         env:
-          # ONEMAP_TOKEN: ${{ secrets.ONEMAP_TOKEN }}
+          ONEMAP_TOKEN: ${{ secrets.ONEMAP_TOKEN }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          # Calculate the end of the range
           START=${{ matrix.chunk }}
           END=$((START + 199999))
           python scripts/get_addresses.py $START $END
+
+  merge-addresses:
+    needs: scrape-addresses
+    # 'always()' ensures we merge the successful chunks even if one failed
+    if: always() 
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        run: |
+          pip install pandas geopandas huggingface_hub pyarrow pyogrio
+
+      - name: Merge Chunks into Unified Parquet
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        shell: python
+        run: |
+          import pandas as pd
+          import geopandas as gpd
+          from huggingface_hub import HfApi, hf_hub_download
+          import os
+          import time
+
+          # 1. Give HF CDN a moment to finalize the latest uploads
+          print("⏳ Waiting for CDN sync...")
+          time.sleep(60)
+
+          api = HfApi()
+          repo_id = "gisfun/spatial-datasets"
+          
+          # 2. List all chunk files in the HF dataset
+          try:
+              files = api.list_repo_files(repo_id=repo_id, repo_type="dataset")
+              chunk_files = [f for f in files if f.startswith("chunks/addresses_")]
+              print(f"📦 Found {len(chunk_files)} chunks to merge.")
+              
+              if not chunk_files:
+                  print("❌ No chunks found. Exiting.")
+                  exit(1)
+
+              ad_dfs = []
+              for f in chunk_files:
+                  print(f"📥 Downloading {f}...")
+                  path = hf_hub_download(repo_id=repo_id, filename=f, repo_type="dataset")
+                  ad_dfs.append(gpd.read_parquet(path))
+              
+              # 3. Combine, Remove Duplicates, and Sort by Postal Code
+              print("🔧 Merging and deduplicating...")
+              full_gdf = pd.concat(ad_dfs).drop_duplicates(subset=['POSTAL', 'SEARCHVAL'])
+              full_gdf = full_gdf.sort_values('POSTAL')
+              
+              # 4. Save and Upload final GeoParquet
+              output = "addresses_full.parquet"
+              full_gdf.to_parquet(output, index=False)
+              
+              print(f"📤 Uploading final dataset ({len(full_gdf)} records)...")
+              api.upload_file(
+                  path_or_fileobj=output,
+                  path_in_repo=output,
+                  repo_id=repo_id,
+                  repo_type="dataset",
+                  token=os.environ["HF_TOKEN"]
+              )
+              print("✅ Successfully published addresses_full.parquet")
+          except Exception as e:
+              print(f"💥 Merge failed: {e}")
+              exit(1)
