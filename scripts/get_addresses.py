@@ -44,16 +44,17 @@ async def fetch_pcode(pcode, session, semaphore):
                             else:
                                 return all_results 
                         
-                        elif response.status == 429 or response.status >= 500:
+                        # LOG BLOCKING/THROTTLING IMMEDIATELY
+                        elif response.status in [401, 403, 429] or response.status >= 500:
                             wait_time = (2 ** attempt) + 2
-                            print(f"⚠️ [PCODE {pcode}] Status {response.status}. Backing off {wait_time}s...")
+                            print(f"⚠️ [PCODE {pcode}] OneMap Response: {response.status}. Retrying in {wait_time}s...", flush=True)
                             await asyncio.sleep(wait_time)
                         else:
-                            print(f"🛑 [PCODE {pcode}] Permanent Error {response.status}. Skipping.")
-                            return all_results 
+                            print(f"🛑 [PCODE {pcode}] Unexpected Status: {response.status}. Skipping.", flush=True)
+                            return all_results
                 except Exception as e:
                     wait_time = (2 ** attempt) + 2
-                    print(f"❌ [PCODE {pcode}] Error: {str(e)[:100]}. Retrying in {wait_time}s...")
+                    print(f"❌ [PCODE {pcode}] Error: {str(e)[:100]}. Retrying in {wait_time}s...", flush=True)
                     await asyncio.sleep(wait_time)
             
             if not success: 
@@ -78,7 +79,7 @@ async def process_range(start, end):
             
             # Print every 50 for quick feedback in logs
             if count % 50 == 0 or count == total:
-                print(f"[{start:06d}-{end:06d}] Progress: {count:,}/{total:,} ({count/total*100:.1f}%)")
+                print(f"[{start:06d}-{end:06d}] Progress: {count:,}/{total:,} ({count/total*100:.1f}%)", flush=True)
     
     flattened = [b for sublist in results for b in sublist]
     if not flattened: return None
