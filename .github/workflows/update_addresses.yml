@@ -1,3 +1,9 @@
+name: update addresses
+on:
+  workflow_dispatch: # Keep this so you can test it manually first!
+  schedule:
+    - cron: '0 0 1 * *' # Runs at 00:00 on the 1st day of every month
+
 jobs:
   scrape-addresses:
     strategy:
