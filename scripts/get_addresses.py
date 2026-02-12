@@ -16,32 +16,47 @@ REPO_ID = "gisfun/spatial-datasets"
 
 async def fetch_pcode(pcode, session, semaphore):
     async with semaphore:
-        # STEALTH THROTTLE: Limits each slot to 1 request per second
-        # Combined with network latency, this hits ~21 RPS per job
-        await asyncio.sleep(1.0) 
-        
-        url = f"https://www.onemap.gov.sg{pcode}&returnGeom=Y&getAddrDetails=Y&pageNum=1"
-        headers = {} #{"Authorization": TOKEN}
-        
-        for attempt in range(4): # 4 attempts total (1 initial + 3 retries)
-            try:
-                async with session.get(url, headers=headers, timeout=15) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        return data.get("results", [])
-                    
-                    # Exponential Backoff for Rate Limits (429) or Server Errors (5xx)
-                    elif response.status == 429 or response.status >= 500:
-                        wait_time = (2 ** attempt) + 1
-                        print(f"⚠️ [PCODE {pcode}] Status {response.status}. Retrying in {wait_time}s...")
-                        await asyncio.sleep(wait_time)
-                        continue
-                    
-                    return [] # Stop for 404/400 errors
-            except Exception:
-                # Handle network timeouts or connection drops
-                await asyncio.sleep((2 ** attempt) + 1)
-        return []
+        page = 1
+        all_results = []
+        headers = {} # {"Authorization": TOKEN}
+
+        while True:
+            # THE THROTTLE: Applied per page fetch to be safe
+            await asyncio.sleep(1.0) 
+            
+            url = f"https://www.onemap.gov.sg/api/common/elastic/search?searchVal={pcode}&returnGeom=Y&getAddrDetails=Y&pageNum={page}"
+            
+            for attempt in range(4):
+                try:
+                    async with session.get(url, headers=headers, timeout=15) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            
+                            results = data.get("results", [])
+                            if results:
+                                all_results.extend(results)
+                            
+                            # Check if there are more pages for this postal code
+                            total_pages = data.get("totalNumPages", 0)
+                            if total_pages > page:
+                                page += 1
+                                break # Exit retry loop to fetch next page
+                            else:
+                                return all_results # Finished all pages
+                        
+                        elif response.status == 429 or response.status >= 500:
+                            wait_time = (2 ** attempt) + 1
+                            await asyncio.sleep(wait_time)
+                            continue
+                        
+                        return all_results # Stop for 400/404
+                except Exception:
+                    await asyncio.sleep((2 ** attempt) + 1)
+            else:
+                # If we exhausted 4 attempts on a single page
+                break
+                
+        return all_results
 
 async def process_range(start, end):
     pcodes = [f"{p:06d}" for p in range(start, end + 1)]
@@ -63,7 +78,7 @@ async def process_range(start, end):
             count += 1
             
             # Print every 6,500 requests (~5.2 mins at ~21 RPS)
-            if count % 6500 == 0 or count == total:
+            if count % 1000 == 0 or count == total:
                 print(f"[{start:06d}-{end:06d}] Progress: {count:,}/{total:,} ({count/total*100:.1f}%)")
     
     # Flatten list of lists into a single list of building dicts
