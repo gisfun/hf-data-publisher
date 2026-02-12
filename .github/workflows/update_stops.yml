@@ -1,0 +1,25 @@
+name: update stops
+on:
+  schedule:
+    - cron: '0 0 * * 0'    # Runs every Sunday at 00:00 UTC
+  workflow_dispatch:        # Keep this for manual "Run workflow" button
+
+jobs:
+  update-data:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        run: pip install pandas pyarrow requests huggingface_hub
+
+      - name: Run ETL and Upload
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: python scripts/get_stops.py
