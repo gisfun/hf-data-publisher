@@ -1,0 +1,24 @@
+jobs:
+  scrape-addresses:
+    strategy:
+      matrix:
+        # Define 5 chunks of 200k each
+        chunk: [0, 200000, 400000, 600000, 800000]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install Dependencies
+        run: pip install pandas geopandas aiohttp huggingface_hub pyogrio
+      - name: Run Scraper for Chunk
+        env:
+          # ONEMAP_TOKEN: ${{ secrets.ONEMAP_TOKEN }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          # Calculate the end of the range
+          START=${{ matrix.chunk }}
+          END=$((START + 199999))
+          python scripts/update_addresses.yml $START $END
