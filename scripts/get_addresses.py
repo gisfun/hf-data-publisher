@@ -49,6 +49,7 @@ async def fetch_pcode(pcode, session, semaphore):
                             print(f"⚠️ [PCODE {pcode}] Status {response.status}. Backing off {wait_time}s...")
                             await asyncio.sleep(wait_time)
                         else:
+                            print(f"🛑 [PCODE {pcode}] Permanent Error {response.status}. Skipping.")
                             return all_results 
                 except Exception as e:
                     wait_time = (2 ** attempt) + 2
