@@ -6,21 +6,36 @@ on:
 
 jobs:
   scrape-addresses:
-    strategy:
-      fail-fast: false
-      matrix:
-        # 10 chunks of 100,000 each
-        chunk: [0, 100000, 200000, 300000, 400000, 500000, 600000, 700000, 800000, 900000]
     runs-on: ubuntu-latest
+    timeout-minutes: 350 # 5.8 hour safety limit
+    strategy:
+      fail-fast: false # Keep other chunks running if one fails
+      matrix:
+        # 10 chunks of 100,000 postal codes each
+        chunk: [0, 100000, 200000, 300000, 400000, 500000, 600000, 700000, 800000, 900000]
+
     steps:
-      - uses: actions/checkout@v4
-      - name: Run Scraper
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip' # Speeds up subsequent runs
+
+      - name: Install Dependencies
+        run: |
+          pip install pandas geopandas aiohttp huggingface_hub pyogrio pyarrow shapely
+
+      - name: Run Ultra-Stealth Scraper
         env:
           ONEMAP_TOKEN: ${{ secrets.ONEMAP_TOKEN }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           START=${{ matrix.chunk }}
           END=$((START + 99999))
+          # Ensure the script path matches your repo structure
           python scripts/get_addresses.py $START $END
 
   merge-addresses:
