@@ -31,6 +31,7 @@ jobs:
         env:
           ONEMAP_TOKEN: ${{ secrets.ONEMAP_TOKEN }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          PYTHONUNBUFFERED: "1"
         run: |
           START=${{ matrix.chunk }}
           END=$((START + 99999))
