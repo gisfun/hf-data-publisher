@@ -17,7 +17,7 @@ jobs:
           python-version: '3.10'
 
       - name: Install Dependencies
-        run: pip install pandas pyarrow requests huggingface_hub
+        run: pip install pandas geopandas shapely pyarrow requests huggingface_hub pyogrio
 
       - name: Run ETL and Upload
         env:
