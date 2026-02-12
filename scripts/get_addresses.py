@@ -52,6 +52,7 @@ async def fetch_pcode(pcode, session, semaphore):
                             return all_results 
                 except Exception as e:
                     wait_time = (2 ** attempt) + 2
+                    print(f"❌ [PCODE {pcode}] Error: {str(e)[:100]}. Retrying in {wait_time}s...")
                     await asyncio.sleep(wait_time)
             
             if not success: 
