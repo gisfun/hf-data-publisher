@@ -1,4 +1,6 @@
 import pandas as pd
+import geopandas as gpd
+from shapely.geometry import Point
 import xml.etree.ElementTree as ET
 import requests
 from huggingface_hub import HfApi
@@ -11,17 +13,20 @@ root = ET.fromstring(response.content)
 
 data = []
 for stop in root.findall('busstop'):
+    # Standardize data types
+    lat = float(stop.findtext('coordinates/lat'))
+    lon = float(stop.findtext('coordinates/long'))
+    
     data.append({
         "name": stop.get('name'),
         "wab": stop.get('wab') == "true",
         "details": stop.findtext('details'),
-        "lat": float(stop.findtext('coordinates/lat')),
-        "long": float(stop.findtext('coordinates/long'))
+        "geometry": Point(lon, lat)  # Create Shapely Point (Lon, Lat order!)
     })
 
-# 2. Convert to Parquet
-df = pd.DataFrame(data)
-df.to_parquet("bus_stops.parquet", index=False)
+# 2. Convert to GeoDataFrame and save as GeoParquet
+gdf = gpd.GeoDataFrame(data, crs="EPSG:4326")
+gdf.to_parquet("bus_stops.parquet", index=False)
 
 # 3. Push to Hugging Face
 api = HfApi()
