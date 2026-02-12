@@ -9,53 +9,75 @@ import sys
 import argparse
 
 # CONFIGURATION
-CONCURRENT_REQUESTS = 25  # Optimal throttle for OneMap stability
+CONCURRENT_REQUESTS = 25  # Number of parallel request slots
 TOKEN = os.getenv("ONEMAP_TOKEN")
 HF_TOKEN = os.getenv("HF_TOKEN")
 REPO_ID = "gisfun/spatial-datasets"
 
 async def fetch_pcode(pcode, session, semaphore):
     async with semaphore:
-        url = f"https://www.onemap.gov.sg{pcode}&returnGeom=Y&getAddrDetails=Y&pageNum=1"
-        headers = {} # {"Authorization": TOKEN}
+        # STEALTH THROTTLE: Limits each slot to 1 request per second
+        # Combined with network latency, this hits ~21 RPS per job
+        await asyncio.sleep(1.0) 
         
-        for attempt in range(3): # Simple retry logic
+        url = f"https://www.onemap.gov.sg{pcode}&returnGeom=Y&getAddrDetails=Y&pageNum=1"
+        headers = {} #{"Authorization": TOKEN}
+        
+        for attempt in range(4): # 4 attempts total (1 initial + 3 retries)
             try:
                 async with session.get(url, headers=headers, timeout=15) as response:
                     if response.status == 200:
                         data = await response.json()
                         return data.get("results", [])
-                    elif response.status == 429:
-                        await asyncio.sleep(2 ** attempt) # Exponential backoff
-                return []
+                    
+                    # Exponential Backoff for Rate Limits (429) or Server Errors (5xx)
+                    elif response.status == 429 or response.status >= 500:
+                        wait_time = (2 ** attempt) + 1
+                        print(f"⚠️ [PCODE {pcode}] Status {response.status}. Retrying in {wait_time}s...")
+                        await asyncio.sleep(wait_time)
+                        continue
+                    
+                    return [] # Stop for 404/400 errors
             except Exception:
-                await asyncio.sleep(1)
+                # Handle network timeouts or connection drops
+                await asyncio.sleep((2 ** attempt) + 1)
         return []
 
 async def process_range(start, end):
     pcodes = [f"{p:06d}" for p in range(start, end + 1)]
     semaphore = asyncio.Semaphore(CONCURRENT_REQUESTS)
     
+    results = []
+    # Limit internal TCP connections to match our concurrency
     connector = aiohttp.TCPConnector(limit=CONCURRENT_REQUESTS)
+    
     async with aiohttp.ClientSession(connector=connector) as session:
         tasks = [fetch_pcode(p, session, semaphore) for p in pcodes]
-        # Using a progress bar in logs
-        results = await asyncio.gather(*tasks)
+        
+        count = 0
+        total = len(tasks)
+        # Use as_completed to trigger progress updates as data arrives
+        for f in asyncio.as_completed(tasks):
+            res = await f
+            results.append(res)
+            count += 1
+            
+            # Print every 6,500 requests (~5.2 mins at ~21 RPS)
+            if count % 6500 == 0 or count == total:
+                print(f"[{start:06d}-{end:06d}] Progress: {count:,}/{total:,} ({count/total*100:.1f}%)")
     
+    # Flatten list of lists into a single list of building dicts
     flattened = [b for sublist in results for b in sublist]
     if not flattened: return None
     
     df = pd.DataFrame(flattened)
-    # Ensure numeric types for DuckDB range queries
+    # Ensure Lat/Lon are floats for DuckDB range query compatibility
     df['LATITUDE'] = pd.to_numeric(df['LATITUDE'], errors='coerce')
     df['LONGITUDE'] = pd.to_numeric(df['LONGITUDE'], errors='coerce')
-    #df = df.dropna(subset=['LATITUDE', 'LONGITUDE'])
     
-    # Create GeoParquet with redundant Lat/Lon
+    # Create GeoParquet with spatial metadata
     gdf = gpd.GeoDataFrame(
-        df, 
-        geometry=gpd.points_from_xy(df.LONGITUDE, df.LATITUDE),
-        crs="EPSG:4326"
+        df, geometry=gpd.points_from_xy(df.LONGITUDE, df.LATITUDE), crs="EPSG:4326"
     )
     return gdf
 
@@ -65,7 +87,7 @@ if __name__ == "__main__":
     parser.add_argument("end", type=int, help="End of postal code range")
     args = parser.parse_args()
 
-    print(f"🚀 Processing: {args.start:06d} to {args.end:06d}")
+    print(f"🚀 Starting Stealth Scrape: {args.start:06d} to {args.end:06d}")
     
     gdf = asyncio.run(process_range(args.start, args.end))
     
@@ -73,6 +95,7 @@ if __name__ == "__main__":
         fname = f"addresses_{args.start:06d}_{args.end:06d}.parquet"
         gdf.to_parquet(fname, index=False)
         
+        # Upload chunk to Hugging Face subfolder
         api = HfApi()
         api.upload_file(
             path_or_fileobj=fname,
@@ -81,6 +104,6 @@ if __name__ == "__main__":
             repo_type="dataset",
             token=HF_TOKEN
         )
-        print(f"✅ Uploaded {fname} with {len(gdf)} records.")
+        print(f"✅ Successfully uploaded {fname} ({len(gdf)} records)")
     else:
-        print("⚠️ No data found in this range.")
+        print("⚠️ No valid data found in this range.")
