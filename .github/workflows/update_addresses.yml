@@ -6,33 +6,21 @@ on:
 
 jobs:
   scrape-addresses:
-    runs-on: ubuntu-latest
-    timeout-minutes: 300 # 5-hour safety limit per job
     strategy:
-      fail-fast: false # Ensure one failing chunk doesn't kill the others
+      fail-fast: false
       matrix:
-        # 5 parallel runners handling 200k postal codes each
-        chunk: [0, 200000, 400000, 600000, 800000]
-
+        # 10 chunks of 100,000 each
+        chunk: [0, 100000, 200000, 300000, 400000, 500000, 600000, 700000, 800000, 900000]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
-      - name: Install Dependencies
-        run: |
-          pip install pandas geopandas aiohttp huggingface_hub pyogrio pyarrow shapely
-
-      - name: Run Scraper for Chunk
+      - name: Run Scraper
         env:
           ONEMAP_TOKEN: ${{ secrets.ONEMAP_TOKEN }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           START=${{ matrix.chunk }}
-          END=$((START + 199999))
+          END=$((START + 99999))
           python scripts/get_addresses.py $START $END
 
   merge-addresses:
