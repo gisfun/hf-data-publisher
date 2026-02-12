@@ -27,4 +27,4 @@ jobs:
           # Calculate the end of the range
           START=${{ matrix.chunk }}
           END=$((START + 199999))
-          python scripts/update_addresses.yml $START $END
+          python scripts/get_addresses.py $START $END
