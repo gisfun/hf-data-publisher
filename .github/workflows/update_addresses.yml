@@ -1,11 +1,18 @@
 name: update addresses
 on:
   workflow_dispatch: # Allows manual trigger via the "Run workflow" button
+    inputs:
+      run_merge_only:
+        description: 'Skip scraping and only run the merge job?'
+        type: boolean
+        default: false
   schedule:
     - cron: '0 0 1 * *' # Runs at 00:00 on the 1st day of every month
 
 jobs:
   scrape-addresses:
+    # This job only runs if we AREN'T doing a 'merge only' run
+    if: github.event.inputs.run_merge_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 350 # 5.8 hour safety limit
     strategy:
@@ -40,8 +47,12 @@ jobs:
 
   merge-addresses:
     needs: scrape-addresses
-    # 'always()' ensures we merge the successful chunks even if one failed
-    if: always() 
+    # LOGIC: 
+    # 1. always() allows it to run even if 'scrape' was skipped or failed.
+    # 2. It runs if 'run_merge_only' is true OR if 'scrape-addresses' finished (success/failure).
+    if: |
+      always() && 
+      (github.event.inputs.run_merge_only == 'true' || needs.scrape-addresses.result != 'cancelled')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
