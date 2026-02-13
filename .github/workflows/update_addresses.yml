@@ -91,7 +91,7 @@ jobs:
               
               # 3. Combine, Remove Duplicates, and Sort by Postal Code
               print("🔧 Merging and deduplicating...")
-              full_gdf = pd.concat(ad_dfs).drop_duplicates(subset=['POSTAL', 'SEARCHVAL'])
+              full_gdf = pd.concat(ad_dfs) #.drop_duplicates(subset=['POSTAL', 'SEARCHVAL'])
               full_gdf = full_gdf.sort_values('POSTAL')
               
               # 4. Save and Upload final GeoParquet
